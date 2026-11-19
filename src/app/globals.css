@@ -1,0 +1,33 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  color-scheme: light;
+}
+
+html {
+  background-color: #ffffff;
+  -webkit-text-size-adjust: 100%;
+}
+
+body {
+  min-height: 100vh;
+  background-color: #ffffff;
+  color: #18181b;
+}
+
+::selection {
+  background-color: rgba(37, 99, 235, 0.16);
+}
+
+* {
+  -webkit-tap-highlight-color: transparent;
+}
+
+/* Keep native scrollbars visible for long file trees and editors. */
+textarea,
+.file-scroll {
+  scrollbar-width: thin;
+  scrollbar-color: #a1a1aa #f7f7f8;
+}

@@ -1,7 +1,12 @@
 import type {
   CommitIdentity,
   GitHubBranch,
+  GitHubComment,
+  GitHubCommitDetail,
+  GitHubCommitSummary,
   GitHubContents,
+  GitHubIssue,
+  GitHubRef,
   GitHubRepo,
   GitHubTree,
   GitHubUser,
@@ -14,7 +19,7 @@ const API_VERSION = "2022-11-28";
 
 interface RequestOptions {
   token?: string | null;
-  method?: "GET" | "POST" | "PUT" | "DELETE";
+  method?: "GET" | "POST" | "PUT" | "PATCH" | "DELETE";
   body?: unknown;
 }
 
@@ -159,6 +164,8 @@ async function githubRequest<T>(
       message = "Bulunamadı.";
     } else if (response.status === 409) {
       message = "Dosya siz düzenlerken değişmiş; yeniden yükleyin.";
+    } else if (response.status === 410) {
+      message = "Bu özellik bu depoda kapalı.";
     } else if (response.status === 422) {
       message = "Gönderilen bilgiler geçerli değil.";
     } else if (response.status === 403 || response.status === 429) {
@@ -267,6 +274,184 @@ export function getBranch(
   return githubRequest<GitHubBranch>(
     `${repoBase(owner, repo)}/branches/${encodeURIComponent(branch)}`,
     { token },
+  );
+}
+
+export function listCommits(
+  owner: string,
+  repo: string,
+  options: {
+    branch?: string;
+    path?: string;
+    page?: number;
+    token?: string | null;
+  } = {},
+): Promise<GitHubCommitSummary[]> {
+  const params = new URLSearchParams({
+    per_page: "30",
+    page: String(options.page ?? 1),
+  });
+
+  if (options.branch) {
+    params.set("sha", options.branch);
+  }
+
+  if (options.path) {
+    params.set("path", options.path);
+  }
+
+  return githubRequest<GitHubCommitSummary[]>(
+    `${repoBase(owner, repo)}/commits?${params.toString()}`,
+    { token: options.token },
+  );
+}
+
+export function getCommit(
+  owner: string,
+  repo: string,
+  sha: string,
+  token?: string | null,
+): Promise<GitHubCommitDetail> {
+  return githubRequest<GitHubCommitDetail>(
+    `${repoBase(owner, repo)}/commits/${encodeURIComponent(sha)}`,
+    { token },
+  );
+}
+
+function encodeBranchName(name: string): string {
+  return name
+    .split("/")
+    .map((segment) => encodeURIComponent(segment))
+    .join("/");
+}
+
+export function createBranchRef(
+  token: string,
+  owner: string,
+  repo: string,
+  input: { name: string; sha: string },
+): Promise<GitHubRef> {
+  return githubRequest<GitHubRef>(`${repoBase(owner, repo)}/git/refs`, {
+    token,
+    method: "POST",
+    body: {
+      ref: `refs/heads/${input.name}`,
+      sha: input.sha,
+    },
+  });
+}
+
+export async function deleteBranchRef(
+  token: string,
+  owner: string,
+  repo: string,
+  name: string,
+): Promise<void> {
+  await githubRequest<null>(
+    `${repoBase(owner, repo)}/git/refs/heads/${encodeBranchName(name)}`,
+    { token, method: "DELETE" },
+  );
+}
+
+export function listIssues(
+  owner: string,
+  repo: string,
+  options: {
+    state: "open" | "closed";
+    page?: number;
+    token?: string | null;
+  },
+): Promise<GitHubIssue[]> {
+  const params = new URLSearchParams({
+    state: options.state,
+    per_page: "25",
+    page: String(options.page ?? 1),
+    sort: "created",
+    direction: "desc",
+  });
+
+  return githubRequest<GitHubIssue[]>(
+    `${repoBase(owner, repo)}/issues?${params.toString()}`,
+    { token: options.token },
+  );
+}
+
+export function getIssue(
+  owner: string,
+  repo: string,
+  number: number,
+  token?: string | null,
+): Promise<GitHubIssue> {
+  return githubRequest<GitHubIssue>(
+    `${repoBase(owner, repo)}/issues/${number}`,
+    { token },
+  );
+}
+
+export function listIssueComments(
+  owner: string,
+  repo: string,
+  number: number,
+  options: { page?: number; token?: string | null } = {},
+): Promise<GitHubComment[]> {
+  const params = new URLSearchParams({
+    per_page: "50",
+    page: String(options.page ?? 1),
+  });
+
+  return githubRequest<GitHubComment[]>(
+    `${repoBase(owner, repo)}/issues/${number}/comments?${params.toString()}`,
+    { token: options.token },
+  );
+}
+
+export function createIssue(
+  token: string,
+  owner: string,
+  repo: string,
+  input: { title: string; body: string },
+): Promise<GitHubIssue> {
+  return githubRequest<GitHubIssue>(`${repoBase(owner, repo)}/issues`, {
+    token,
+    method: "POST",
+    body: {
+      title: input.title,
+      body: input.body || null,
+    },
+  });
+}
+
+export function createIssueComment(
+  token: string,
+  owner: string,
+  repo: string,
+  number: number,
+  body: string,
+): Promise<GitHubComment> {
+  return githubRequest<GitHubComment>(
+    `${repoBase(owner, repo)}/issues/${number}/comments`,
+    {
+      token,
+      method: "POST",
+      body: { body },
+    },
+  );
+}
+
+export function setIssueState(
+  token: string,
+  owner: string,
+  repo: string,
+  number: number,
+  state: "open" | "closed",
+): Promise<GitHubIssue> {
+  return githubRequest<GitHubIssue>(
+    `${repoBase(owner, repo)}/issues/${number}`,
+    {
+      token,
+      method: "PATCH",
+      body: { state },
+    },
   );
 }
 

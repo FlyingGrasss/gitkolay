@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useCallback, useEffect, useId, useState } from "react";
 import toast from "react-hot-toast";
 import {
@@ -7,6 +8,7 @@ import {
   Download,
   ExternalLink,
   FileText,
+  History,
   RotateCcw,
   Save,
   Trash2,
@@ -49,6 +51,7 @@ export function FileEditor({
   path,
   token,
   user,
+  historyHref,
   onBack,
   onDeleted,
   onSaved,
@@ -60,6 +63,7 @@ export function FileEditor({
   path: string;
   token: string | null;
   user: GitHubUser | null;
+  historyHref: string;
   onBack: () => void;
   onDeleted: () => void;
   onSaved?: () => void;
@@ -277,6 +281,13 @@ export function FileEditor({
           </div>
         </div>
         <div className="flex flex-wrap items-center gap-2">
+          <Link
+            href={historyHref}
+            className={buttonClasses({ variant: "ghost", size: "sm" })}
+          >
+            <History aria-hidden="true" className="h-4 w-4" />
+            Geçmiş
+          </Link>
           {file.download_url ? (
             <a
               href={file.download_url}

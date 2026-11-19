@@ -101,3 +101,94 @@ export interface CommitIdentity {
   name: string;
   email: string;
 }
+
+interface GitHubCommitPerson {
+  name: string;
+  email: string;
+  date: string;
+}
+
+export interface GitHubCommitSummary {
+  sha: string;
+  html_url: string;
+  commit: {
+    message: string;
+    author: GitHubCommitPerson | null;
+    committer?: GitHubCommitPerson | null;
+  };
+  author: GitHubOwner | null;
+}
+
+export type GitHubFileStatus =
+  | "added"
+  | "modified"
+  | "removed"
+  | "renamed"
+  | "copied"
+  | "changed"
+  | "unchanged";
+
+export interface GitHubCommitFile {
+  filename: string;
+  previous_filename?: string;
+  status: GitHubFileStatus | string;
+  additions: number;
+  deletions: number;
+  changes: number;
+  patch?: string;
+}
+
+export interface GitHubCommitDetail extends GitHubCommitSummary {
+  stats?: {
+    additions: number;
+    deletions: number;
+    total: number;
+  };
+  files?: GitHubCommitFile[];
+  parents?: Array<{
+    sha: string;
+    html_url: string;
+  }>;
+}
+
+export interface GitHubLabel {
+  id: number;
+  name: string;
+  color: string;
+  description?: string | null;
+}
+
+export interface GitHubIssue {
+  id: number;
+  number: number;
+  title: string;
+  body: string | null;
+  state: "open" | "closed";
+  html_url: string;
+  comments: number;
+  created_at: string;
+  updated_at: string;
+  closed_at?: string | null;
+  user: GitHubOwner | null;
+  labels: GitHubLabel[];
+  pull_request?: unknown;
+}
+
+export interface GitHubComment {
+  id: number;
+  body: string | null;
+  html_url: string;
+  created_at: string;
+  updated_at: string;
+  user: GitHubOwner | null;
+}
+
+export interface GitHubRef {
+  ref: string;
+  object: {
+    sha: string;
+    type: string;
+    url: string;
+  };
+  url: string;
+}

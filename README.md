@@ -13,6 +13,9 @@ Uygulama tamamen istemci tarafında çalışır. Token ve istekler tarayıcıdan
 - **Dosya gezintisi:** Sürüm (dal) değiştirme, klasörler arasında gezinme ve dosya açma.
 - **Dosya düzenleme:** Metin dosyalarını büyük bir alanda düzenleme, commit mesajıyla kaydetme ve oluşan kaydın bağlantısını görme.
 - **Dosya oluşturma ve silme:** Yeni dosya ekleme; onay penceresiyle dosya silme.
+- **Commit geçmişi:** Dal bazında commit listesi, dosya bazlı geçmiş, commit istatistikleri ve dosya değişiklikleri.
+- **Issue'lar:** Açık/kapalı issue listesi, issue detayı, yorumlar, yeni issue, yorum yazma ve issue kapatma/yeniden açma.
+- **Dallar:** Dal listesi, dal değiştirme, kaynak daldan yeni dal oluşturma ve onaylı dal silme.
 - **Anlaşılır hatalar:** Geçersiz token, istek sınırı (rate limit), bulunamayan içerik ve ağ hataları için Türkçe mesajlar.
 - **Sade arayüz:** Yalnızca açık tema, büyük tipografi ve klavye erişilebilirliği.
 
@@ -62,13 +65,13 @@ Vercel, statik çıktıyı `out/` klasöründen yayınlar. İsterseniz `pnpm bui
 
 ## Bu sürümün sınırları (v1)
 
-- Merge, pull request, issue, commit geçmişi ve kod arama yok.
+- Merge, pull request ve kod arama yok.
 - Yazma işlemleri için `repo` kapsamlı bir token gerekir.
 - OAuth veya GitHub oturumu yok; token kullanıcı tarafından oluşturulur.
 - Token sekmeye özeldir; başka bir sekmede yeniden bağlanmak gerekir.
-- Depo listeleri ve dal listeleri en fazla 100 sonuç döndürür (sayfalama yok).
+- Depo ve dal listeleri en fazla 100 sonuç döndürür; commit, issue ve yorum listeleri sayfalanır.
 - GitHub Contents API nedeniyle 1 MB'tan büyük dosyalar düzenlenemez; ikili dosyalar salt okunur önizlenir.
-- Alt modüller düzenlenemez; dosya adı değiştirme ve dal oluşturma bu sürümde yoktur.
+- Alt modüller düzenlenemez; dosya adı değiştirme bu sürümde yoktur.
 - Özel depolardaki ikili dosyaların doğrudan indirme bağlantıları GitHub oturumu isteyebilir.
 
 ## Teknolojiler

@@ -1,6 +1,7 @@
 "use client";
 
-import { ChevronRight, FileText, Folder, Package } from "lucide-react";
+import Link from "next/link";
+import { ChevronRight, FileText, Folder, History, Package } from "lucide-react";
 import { cx } from "@/lib/cx";
 import { formatBytes } from "@/lib/files";
 import type { DirectoryEntry } from "@/lib/files";
@@ -20,9 +21,11 @@ const TYPE_LABELS = {
 export function FileTable({
   entries,
   onOpen,
+  historyHref,
 }: {
   entries: DirectoryEntry[];
   onOpen: (path: string) => void;
+  historyHref?: (path: string) => string;
 }) {
   return (
     <div className="file-scroll overflow-x-auto rounded-container border border-line">
@@ -41,6 +44,9 @@ export function FileTable({
               className="hidden px-4 py-3 text-right font-medium sm:table-cell"
             >
               Boyut
+            </th>
+            <th scope="col" className="px-4 py-3 text-right font-medium">
+              Geçmiş
             </th>
           </tr>
         </thead>
@@ -79,6 +85,21 @@ export function FileTable({
                 </td>
                 <td className="hidden px-4 py-3 text-right text-muted sm:table-cell">
                   {entry.type === "file" ? formatBytes(entry.size) : "—"}
+                </td>
+                <td className="px-4 py-3 text-right">
+                  {entry.type === "file" && historyHref ? (
+                    <Link
+                      href={historyHref(entry.path)}
+                      className="inline-flex items-center gap-1.5 whitespace-nowrap rounded-field text-xs font-medium text-muted transition-colors hover:text-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus"
+                    >
+                      <History aria-hidden="true" className="h-3.5 w-3.5" />
+                      Geçmiş
+                    </Link>
+                  ) : (
+                    <span aria-hidden="true" className="text-sm text-strong">
+                      —
+                    </span>
+                  )}
                 </td>
               </tr>
             );

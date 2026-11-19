@@ -2,46 +2,48 @@
 
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { ArrowLeft, FilePlus2, FolderOpen, Package } from "lucide-react";
+import { useCallback, useEffect, useRef, useState } from "react";
+import {
+  ArrowLeft,
+  CircleDot,
+  FolderTree,
+  GitBranch,
+  GitCommitHorizontal,
+} from "lucide-react";
 import { Alert } from "@/components/ui/Alert";
 import { Button } from "@/components/ui/Button";
-import { EmptyState } from "@/components/ui/EmptyState";
 import { ErrorNotice } from "@/components/ui/ErrorNotice";
 import { Skeleton } from "@/components/ui/Skeleton";
 import { VisibilityBadge } from "@/components/ui/Badge";
 import { TokenModal } from "@/components/TokenModal";
 import { useSession } from "@/components/SessionProvider";
 import { BranchSwitcher } from "@/components/repo/BranchSwitcher";
-import { FileEditor } from "@/components/repo/FileEditor";
-import { FileTable } from "@/components/repo/FileTable";
-import { NewFileModal } from "@/components/repo/NewFileModal";
-import { PathTrail } from "@/components/repo/PathTrail";
-import {
-  GitHubApiError,
-  getBranch,
-  getErrorMessage,
-  getRepository,
-  getTree,
-  listBranches,
-} from "@/lib/github";
-import {
-  fileExtension,
-  findTreeEntry,
-  listDirectory,
-  parentPath,
-} from "@/lib/files";
-import {
-  formatAbsoluteDate,
-  formatUpdatedAt,
-} from "@/lib/format";
-import type {
-  GitHubBranch,
-  GitHubRepo,
-  GitHubTree,
-} from "@/lib/types";
+import { BranchesTab } from "@/components/repo/BranchesTab";
+import { CodeTab } from "@/components/repo/CodeTab";
+import { CommitsTab } from "@/components/repo/CommitsTab";
+import { IssuesTab } from "@/components/repo/IssuesTab";
+import { GitHubApiError, getErrorMessage, getRepository, listBranches } from "@/lib/github";
+import { cx } from "@/lib/cx";
+import { formatAbsoluteDate, formatUpdatedAt } from "@/lib/format";
+import type { GitHubBranch, GitHubRepo } from "@/lib/types";
 
 type LoadStatus = "idle" | "loading" | "ready" | "error";
+type RepoTab = "code" | "commits" | "issues" | "branches";
+
+const TAB_ITEMS = [
+  { id: "code", label: "Kod", icon: FolderTree },
+  { id: "commits", label: "Commitler", icon: GitCommitHorizontal },
+  { id: "issues", label: "Issue'lar", icon: CircleDot },
+  { id: "branches", label: "Dallar", icon: GitBranch },
+] as const;
+
+function resolveTab(value: string | null): RepoTab {
+  if (value === "commits" || value === "issues" || value === "branches") {
+    return value;
+  }
+
+  return "code";
+}
 
 function sanitizePath(value: string): string {
   return value.replace(/^\/+|\/+$/g, "");
@@ -75,33 +77,32 @@ export function RepoBrowser({ owner, repo }: { owner: string; repo: string }) {
   const searchParams = useSearchParams();
   const branchParam = (searchParams.get("branch") ?? "").trim();
   const pathParam = sanitizePath(searchParams.get("path") ?? "");
+  const activeTab = resolveTab(searchParams.get("tab"));
+  const commitParam = (searchParams.get("commit") ?? "").trim();
+  const issueParamRaw = (searchParams.get("issue") ?? "").trim();
+  const issueParam = /^\d+$/.test(issueParamRaw)
+    ? Number(issueParamRaw)
+    : null;
 
   const [meta, setMeta] = useState<GitHubRepo | null>(null);
   const [branches, setBranches] = useState<GitHubBranch[]>([]);
   const [metaStatus, setMetaStatus] = useState<LoadStatus>("loading");
   const [metaError, setMetaError] = useState<string | null>(null);
-  const [tree, setTree] = useState<GitHubTree | null>(null);
-  const [treeStatus, setTreeStatus] = useState<LoadStatus>("idle");
-  const [treeError, setTreeError] = useState<string | null>(null);
-  const [newFileOpen, setNewFileOpen] = useState(false);
   const [tokenModalOpen, setTokenModalOpen] = useState(false);
   const metaRequestId = useRef(0);
-  const treeRequestId = useRef(0);
 
   const branch =
-    branchParam || meta?.default_branch || branches[0]?.name || "";
+    branches.length === 0
+      ? ""
+      : branchParam || meta?.default_branch || branches[0]?.name || "";
 
   const loadRepository = useCallback(async () => {
     const requestId = metaRequestId.current + 1;
     metaRequestId.current = requestId;
-    treeRequestId.current += 1;
     setMetaStatus("loading");
     setMetaError(null);
     setMeta(null);
     setBranches([]);
-    setTree(null);
-    setTreeStatus("idle");
-    setTreeError(null);
 
     try {
       const [repository, branchList] = await Promise.all([
@@ -133,64 +134,24 @@ export function RepoBrowser({ owner, repo }: { owner: string; repo: string }) {
     }
   }, [owner, repo, token]);
 
+  const refreshBranches = useCallback(async () => {
+    try {
+      const branchList = await listBranches(owner, repo, token);
+      setBranches(branchList);
+      return branchList;
+    } catch (error) {
+      if (error instanceof GitHubApiError && error.status === 409) {
+        setBranches([]);
+        return [] as GitHubBranch[];
+      }
+
+      throw error;
+    }
+  }, [owner, repo, token]);
+
   useEffect(() => {
     void loadRepository();
   }, [loadRepository]);
-
-  const loadTree = useCallback(
-    async (silent = false, force = false) => {
-      const requestId = treeRequestId.current + 1;
-      treeRequestId.current = requestId;
-
-      if (!branch || (branches.length === 0 && !force)) {
-        setTree(null);
-        setTreeStatus("ready");
-        setTreeError(null);
-        return;
-      }
-
-      if (!silent) {
-        setTreeStatus("loading");
-        setTreeError(null);
-      }
-
-      try {
-        const branchInfo = await getBranch(owner, repo, branch, token);
-        const treeData = await getTree(
-          owner,
-          repo,
-          branchInfo.commit.sha,
-          token,
-        );
-
-        if (treeRequestId.current !== requestId) {
-          return;
-        }
-
-        setTree(treeData);
-        setTreeStatus("ready");
-        setTreeError(null);
-      } catch (error) {
-        if (treeRequestId.current !== requestId) {
-          return;
-        }
-
-        if (!silent) {
-          setTreeError(getErrorMessage(error));
-          setTreeStatus("error");
-        }
-      }
-    },
-    [owner, repo, branch, branches.length, token],
-  );
-
-  useEffect(() => {
-    if (metaStatus !== "ready" || !meta) {
-      return;
-    }
-
-    void loadTree();
-  }, [metaStatus, meta, loadTree]);
 
   useEffect(() => {
     if (metaStatus !== "ready" || branchParam || !branch) {
@@ -212,8 +173,15 @@ export function RepoBrowser({ owner, repo }: { owner: string; repo: string }) {
     repo,
   ]);
 
-  const buildRepoUrl = useCallback(
-    (next: { branch?: string; path?: string }) => {
+  const buildRepoHref = useCallback(
+    (next: {
+      tab?: RepoTab;
+      branch?: string;
+      path?: string;
+      commit?: string;
+      issue?: number;
+    }) => {
+      const tab = next.tab ?? activeTab;
       const params = new URLSearchParams();
       params.set("owner", owner);
       params.set("repo", repo);
@@ -224,67 +192,59 @@ export function RepoBrowser({ owner, repo }: { owner: string; repo: string }) {
         params.set("branch", targetBranch);
       }
 
+      if (tab !== "code") {
+        params.set("tab", tab);
+      }
+
       if (next.path) {
-        params.set("path", next.path);
+        const normalizedPath = sanitizePath(next.path);
+
+        if (normalizedPath) {
+          params.set("path", normalizedPath);
+        }
+      }
+
+      if (tab === "commits" && next.commit) {
+        params.set("commit", next.commit);
+      }
+
+      if (tab === "issues" && typeof next.issue === "number") {
+        params.set("issue", String(next.issue));
       }
 
       return `/repo?${params.toString()}`;
     },
-    [owner, repo, branch],
+    [activeTab, branch, owner, repo],
   );
 
-  const navigatePath = useCallback(
+  const tabHref = (tab: RepoTab) =>
+    buildRepoHref({
+      tab,
+      path:
+        tab === "code" || (tab === "commits" && activeTab === "commits")
+          ? pathParam
+          : undefined,
+    });
+
+  const navigateCodePath = useCallback(
     (nextPath: string) => {
-      router.push(buildRepoUrl({ path: sanitizePath(nextPath) }), {
+      router.push(buildRepoHref({ tab: "code", path: sanitizePath(nextPath) }), {
         scroll: true,
       });
     },
-    [router, buildRepoUrl],
+    [router, buildRepoHref],
+  );
+
+  const historyHref = useCallback(
+    (filePath: string) => buildRepoHref({ tab: "commits", path: filePath }),
+    [buildRepoHref],
   );
 
   const handleBranchChange = (nextBranch: string) => {
-    router.push(buildRepoUrl({ branch: nextBranch, path: "" }), {
-      scroll: true,
-    });
-  };
-
-  const pathEntry = useMemo(
-    () => (tree && pathParam ? findTreeEntry(tree, pathParam) : undefined),
-    [tree, pathParam],
-  );
-
-  const looksLikeFile = Boolean(pathParam && fileExtension(pathParam) !== "");
-  const missingFile =
-    pathParam !== "" &&
-    !pathEntry &&
-    (tree?.truncated === true || looksLikeFile);
-  const isFileView = pathEntry?.type === "blob" || missingFile;
-  const isSubmoduleView = pathEntry?.type === "commit";
-  const isDirectoryView = pathParam === "" || pathEntry?.type === "tree";
-  const isInvalidPath =
-    treeStatus === "ready" &&
-    pathParam !== "" &&
-    !isFileView &&
-    !isSubmoduleView &&
-    !isDirectoryView;
-  const currentDirectory = isFileView ? parentPath(pathParam) : pathParam;
-
-  const entries = useMemo(() => {
-    if (!tree || !isDirectoryView || isInvalidPath) {
-      return [];
-    }
-
-    return listDirectory(tree, pathParam);
-  }, [tree, isDirectoryView, isInvalidPath, pathParam]);
-
-  const handleFileCreated = async (createdPath: string) => {
-    await loadTree(true, true);
-    navigatePath(createdPath);
-  };
-
-  const handleFileDeleted = () => {
-    navigatePath(parentPath(pathParam));
-    void loadTree(true, true);
+    router.push(
+      buildRepoHref({ tab: activeTab, branch: nextBranch, path: "" }),
+      { scroll: true },
+    );
   };
 
   if (metaStatus === "loading") {
@@ -336,8 +296,6 @@ export function RepoBrowser({ owner, repo }: { owner: string; repo: string }) {
       </>
     );
   }
-
-  const isEmptyRepo = treeStatus === "ready" && (!tree || tree.tree.length === 0);
 
   return (
     <>
@@ -394,35 +352,19 @@ export function RepoBrowser({ owner, repo }: { owner: string; repo: string }) {
             ) : null}
           </div>
 
-          <div className="flex flex-wrap items-start gap-3">
-            <BranchSwitcher
-              branches={branches}
-              branch={branch}
-              disabled={metaStatus !== "ready"}
-              onChange={handleBranchChange}
-            />
-            <span
-              className="inline-block pt-[1.65rem]"
-              title={!token ? "Yazmak için token gerekir" : undefined}
-            >
-              <Button
-                variant="secondary"
-                onClick={() => setNewFileOpen(true)}
-                disabled={!token || !branch}
-                aria-describedby={!token ? "repo-write-hint" : undefined}
-              >
-                <FilePlus2 aria-hidden="true" className="h-4 w-4" />
-                Yeni dosya
-              </Button>
-            </span>
-          </div>
+          <BranchSwitcher
+            branches={branches}
+            branch={branch}
+            disabled={metaStatus !== "ready" || branches.length === 0}
+            onChange={handleBranchChange}
+          />
         </div>
 
         {!token ? (
           <Alert tone="info" title="Salt görünüm" className="mt-6">
             <p id="repo-write-hint">
-              Yazmak için token gerekir. Dosya düzenlemek, yeni dosya eklemek
-              veya silmek için hesabınızı bağlayın.
+              Yazmak için token gerekir. Dosya düzenlemek, issue açmak, yorum
+              yazmak, dal oluşturmak veya silmek için hesabınızı bağlayın.
             </p>
             <Button
               variant="secondary"
@@ -435,142 +377,129 @@ export function RepoBrowser({ owner, repo }: { owner: string; repo: string }) {
           </Alert>
         ) : null}
 
-        <div className="mt-6 border-t border-line pt-5">
-          <PathTrail path={pathParam} onNavigate={navigatePath} />
+        <div className="mt-6 border-b border-line">
+          <nav
+            aria-label="Depo bölümleri"
+            className="-mb-px flex gap-1 overflow-x-auto"
+          >
+            {TAB_ITEMS.map((item) => {
+              const isActive = activeTab === item.id;
+              const Icon = item.icon;
 
-          <div className="mt-5" aria-busy={treeStatus === "loading" ? true : undefined}>
-            {treeStatus === "loading" ? (
-              <div className="space-y-3">
-                <Skeleton className="h-10 w-full" />
-                <Skeleton className="h-64 w-full rounded-container" />
-                <span className="sr-only">Dosyalar yükleniyor…</span>
-              </div>
-            ) : null}
+              return (
+                <Link
+                  key={item.id}
+                  href={tabHref(item.id)}
+                  aria-current={isActive ? "page" : undefined}
+                  className={cx(
+                    "inline-flex items-center gap-2 whitespace-nowrap border-b-2 px-3 py-3 text-sm font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-focus",
+                    isActive
+                      ? "border-ink text-ink"
+                      : "border-transparent text-muted hover:border-line hover:text-ink",
+                  )}
+                >
+                  <Icon aria-hidden="true" className="h-4 w-4" />
+                  {item.label}
+                </Link>
+              );
+            })}
+          </nav>
+        </div>
 
-            {treeStatus === "error" ? (
-              <ErrorNotice
-                title="Dosyalar yüklenemedi"
-                message={treeError ?? "Dosya listesi yüklenemedi."}
-                onRetry={() => {
-                  void loadTree();
-                }}
-              >
-                <p>
-                  Sürüm mevcut değilse yukarıdan başka bir sürüm seçmeyi
-                  deneyin.
-                </p>
-              </ErrorNotice>
-            ) : null}
+        <div className="mt-6">
+          {activeTab === "code" ? (
+            <CodeTab
+              owner={owner}
+              repo={repo}
+              branch={branch}
+              path={pathParam}
+              token={token}
+              user={user}
+              historyHref={historyHref}
+              onNavigatePath={navigateCodePath}
+              onOpenToken={() => setTokenModalOpen(true)}
+            />
+          ) : null}
 
-            {treeStatus === "ready" && isFileView ? (
-              <FileEditor
-                key={`${owner}/${repo}/${branch}/${pathParam}`}
-                owner={owner}
-                repo={repo}
-                branch={branch}
-                path={pathParam}
-                token={token}
-                user={user}
-                onBack={() => navigatePath(parentPath(pathParam))}
-                onDeleted={handleFileDeleted}
-                onSaved={() => {
-                  void loadTree(true, true);
-                }}
-                onOpenToken={() => setTokenModalOpen(true)}
-              />
-            ) : null}
+          {activeTab === "commits" ? (
+            <CommitsTab
+              owner={owner}
+              repo={repo}
+              branch={branch}
+              pathFilter={pathParam}
+              token={token}
+              commitSha={commitParam || null}
+              onOpenCommit={(sha) => {
+                router.push(
+                  buildRepoHref({
+                    tab: "commits",
+                    path: pathParam,
+                    commit: sha,
+                  }),
+                  { scroll: true },
+                );
+              }}
+              onBackToCommits={() => {
+                router.push(
+                  buildRepoHref({ tab: "commits", path: pathParam }),
+                  { scroll: true },
+                );
+              }}
+              onClearPath={() => {
+                router.push(buildRepoHref({ tab: "commits" }), {
+                  scroll: true,
+                });
+              }}
+              onOpenToken={() => setTokenModalOpen(true)}
+            />
+          ) : null}
 
-            {treeStatus === "ready" && isSubmoduleView ? (
-              <EmptyState
-                icon={<Package aria-hidden="true" className="h-8 w-8" />}
-                title="Alt modül"
-                description="Bu öğe ayrı bir depoyu gösteriyor. GitKolay'ın bu sürümünde alt modüller düzenlenemez."
-                action={
-                  <Button
-                    variant="secondary"
-                    onClick={() => navigatePath(parentPath(pathParam))}
-                  >
-                    Klasöre dön
-                  </Button>
-                }
-              />
-            ) : null}
+          {activeTab === "issues" ? (
+            <IssuesTab
+              owner={owner}
+              repo={repo}
+              token={token}
+              issueNumber={issueParam}
+              onOpenIssue={(number) => {
+                router.push(
+                  buildRepoHref({ tab: "issues", issue: number }),
+                  { scroll: true },
+                );
+              }}
+              onBackToIssues={() => {
+                router.push(buildRepoHref({ tab: "issues" }), {
+                  scroll: true,
+                });
+              }}
+              onOpenToken={() => setTokenModalOpen(true)}
+            />
+          ) : null}
 
-            {treeStatus === "ready" && isInvalidPath ? (
-              <EmptyState
-                icon={<FolderOpen aria-hidden="true" className="h-8 w-8" />}
-                title="Bulunamadı."
-                description="Bu yol seçili sürümde yok. Dosya silinmiş veya adı değişmiş olabilir."
-                action={
-                  <Button
-                    variant="secondary"
-                    onClick={() => navigatePath(parentPath(pathParam))}
-                  >
-                    Klasöre dön
-                  </Button>
-                }
-              />
-            ) : null}
-
-            {treeStatus === "ready" &&
-            isDirectoryView &&
-            !isInvalidPath &&
-            !isFileView ? (
-              <div className="space-y-4">
-                {tree?.truncated ? (
-                  <Alert tone="warning">
-                    Depo çok büyük olduğu için dosya listesi yalnızca kısmen
-                    gösteriliyor.
-                  </Alert>
-                ) : null}
-
-                {isEmptyRepo || entries.length === 0 ? (
-                  <EmptyState
-                    icon={<FolderOpen aria-hidden="true" className="h-8 w-8" />}
-                    title={
-                      isEmptyRepo ? "Bu depo henüz boş" : "Bu klasör boş"
-                    }
-                    description={
-                      isEmptyRepo
-                        ? "İlk dosyayı ekleyerek başlayın."
-                        : "Bu klasörde dosya yok. Yeni bir dosya ekleyebilirsiniz."
-                    }
-                    action={
-                      token ? (
-                        <Button onClick={() => setNewFileOpen(true)}>
-                          <FilePlus2 aria-hidden="true" className="h-4 w-4" />
-                          Yeni dosya
-                        </Button>
-                      ) : (
-                        <Button
-                          variant="secondary"
-                          onClick={() => setTokenModalOpen(true)}
-                        >
-                          Token bağla
-                        </Button>
-                      )
-                    }
-                  />
-                ) : (
-                  <FileTable entries={entries} onOpen={navigatePath} />
-                )}
-              </div>
-            ) : null}
-          </div>
+          {activeTab === "branches" ? (
+            <BranchesTab
+              owner={owner}
+              repo={repo}
+              branches={branches}
+              currentBranch={branch}
+              defaultBranch={meta.default_branch}
+              token={token}
+              onSwitchBranch={(nextBranch) => {
+                router.push(
+                  buildRepoHref({
+                    tab: "code",
+                    branch: nextBranch,
+                    path: "",
+                  }),
+                  { scroll: true },
+                );
+              }}
+              onRefreshBranches={refreshBranches}
+              onOpenToken={() => setTokenModalOpen(true)}
+            />
+          ) : null}
         </div>
       </main>
 
-      <NewFileModal
-        open={newFileOpen}
-        token={token}
-        user={user}
-        owner={owner}
-        repo={repo}
-        branch={branch}
-        initialDirectory={currentDirectory}
-        onClose={() => setNewFileOpen(false)}
-        onCreated={handleFileCreated}
-      />
       <TokenModal
         open={tokenModalOpen}
         onClose={() => setTokenModalOpen(false)}
